@@ -5,7 +5,7 @@ import folium
 import json
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, dcc, html, Input, Output, callback
+from dash import Dash, dcc, html, Input, Output, callback, no_update
 import numpy as np
 
 # Helper function for empty charts
@@ -32,6 +32,9 @@ trips_df['pickup_date'] = trips_df['tpep_pickup_datetime'].dt.date
 # Get min and max dates for the date picker
 min_date = trips_df['tpep_pickup_datetime'].min().date()
 max_date = trips_df['tpep_pickup_datetime'].max().date()
+
+# Get max passengers
+max_passengers = int(trips_df['passenger_count'].max())
 
 # Create a borough mapping for zones (based on zone name)
 borough_keywords = {
@@ -89,16 +92,67 @@ app.layout = html.Div(
             ], style={'width': '40%', 'display': 'inline-block'}),
             
             html.Div([
-                html.Label("Borough:", style={'fontWeight': 'bold'}),
+                html.Label("Pick-up Borough:", style={'fontWeight': 'bold'}),
                 dcc.Dropdown(
-                    id='borough-dropdown',
-                    options=[{'label': 'All Boroughs', 'value': 'All'}] + 
+                    id='pickup-borough-dropdown',
+                    options=[{'label': 'All Pick-up Boroughs', 'value': 'All'}] + 
                             [{'label': b, 'value': b} for b in zones_gdf['borough'].unique() if b != 'Other'],
                     value='All',
                     clearable=False,
                     style={'width': '180px', 'display': 'inline-block', 'marginLeft': '10px', 'fontSize': '12px'}
                 ),
-            ], style={'width': '35%', 'display': 'inline-block', 'float': 'right'}),
+            ], style={'width': '25%', 'display': 'inline-block'}),
+
+            html.Div([
+                html.Label("Drop-off Borough:", style={'fontWeight': 'bold'}),
+                dcc.Dropdown(
+                    id='dropoff-borough-dropdown',
+                    options=[{'label': 'All Drop-off Boroughs', 'value': 'All'}] + 
+                            [{'label': b, 'value': b} for b in zones_gdf['borough'].unique() if b != 'Other'],
+                    value='All',
+                    clearable=False,
+                    style={'width': '180px', 'display': 'inline-block', 'marginLeft': '10px', 'fontSize': '12px'}
+                ),
+            ], style={'width': '25%', 'display': 'inline-block'}),
+
+            html.Div([
+                html.Label("Payment Method:", style={'fontWeight': 'bold'}),
+                dcc.Dropdown(
+                    id='payment-dropdown',
+                    options=[{'label': 'All Payment Methods', 'value': 'All'}] +
+                            [{'label': p, 'value': p} for p in sorted(trips_df['payment_type_name'].unique())],
+                    value='All',
+                    clearable=False,
+                    style={'width': '180px', 'display': 'inline-block', 'marginLeft': '10px', 'fontSize': '12px'}
+                ),
+            ], style={'width': '25%', 'display': 'inline-block'}),
+
+            html.Div([
+                html.Label("Passenger Count:", style={'fontWeight': 'bold'}),
+                dcc.RangeSlider(
+                    id='passenger-range',
+                    min=0,
+                    max=max_passengers,
+                    step=1,
+                    value=[0, max_passengers],
+                    marks={i: str(i) for i in range(max_passengers + 1)}
+                ),
+            ], style={'width': '25%', 'display': 'inline-block'}),
+
+            html.Button(
+                "↺ Reset",
+                id='reset-filters-btn',
+                n_clicks=0,
+                style={
+                    'marginLeft': '15px',
+                    'height': '38px',
+                    'backgroundColor': '#95a5a6',
+                    'color': 'white',
+                    'border': 'none',
+                    'borderRadius': '5px',
+                    'cursor': 'pointer'
+                }
+            )
         ], style={'padding': '5px', 'borderBottom': '1px solid #ddd', 'marginBottom': '5px', 'flexShrink': '0'}),
         
         # KPI Row – light gray background, black text
@@ -155,10 +209,12 @@ app.layout = html.Div(
      Output('payment-donut', 'figure')],
     [Input('date-range', 'start_date'),
      Input('date-range', 'end_date'),
-     Input('borough-dropdown', 'value'),
-     Input('payment-donut', 'clickData')]
+     Input('pickup-borough-dropdown', 'value'),
+     Input('dropoff-borough-dropdown', 'value'),
+     Input('payment-dropdown', 'value'),
+     Input('passenger-range', 'value')]
 )
-def update_dashboard(start_date, end_date, selected_borough, payment_click):
+def update_dashboard(start_date, end_date, selected_pickup_borough, selected_dropoff_borough, selected_payment, selected_passenger_range):
     # Handle None dates
     if start_date is None:
         start_date = min_date
@@ -174,13 +230,22 @@ def update_dashboard(start_date, end_date, selected_borough, payment_click):
     ].copy()
     
     # Filter by borough
-    if selected_borough != 'All':
-        filtered = filtered[filtered['PULocationBorough'] == selected_borough]
+    if selected_pickup_borough != 'All':
+        filtered = filtered[filtered['PULocationBorough'] == selected_pickup_borough]
+
+    if selected_dropoff_borough != 'All':
+        filtered = filtered[filtered['DOLocationBorough'] == selected_dropoff_borough]
     
     # Cross-filter by payment method
-    if payment_click and 'points' in payment_click and len(payment_click['points']) > 0:
-        clicked_payment = payment_click['points'][0]['label']
-        filtered = filtered[filtered['payment_type_name'] == clicked_payment]
+    if selected_payment != 'All':
+        filtered = filtered[filtered['payment_type_name'] == selected_payment]
+
+    # Filter by passenger count
+    if selected_passenger_range != 'All':
+        filtered = filtered[
+            (filtered['passenger_count'] >= selected_passenger_range[0]) &
+            (filtered['passenger_count'] <= selected_passenger_range[1])
+]
     
     # Empty data handling
     if len(filtered) == 0:
@@ -290,6 +355,38 @@ def update_dashboard(start_date, end_date, selected_borough, payment_click):
     return (total_card, fare_card, dist_card, tip_card,
             map_html, fig_time, fig_fare_dist, fig_tip_dist,
             fig_heatmap, fig_passenger, fig_payment)
+
+
+@app.callback(
+    Output('payment-dropdown', 'value'),
+    Input('payment-donut', 'clickData'),
+    prevent_initial_call=True
+)
+def update_payment_dropdown_from_donut(payment_click):
+    if payment_click and 'points' in payment_click and len(payment_click['points']) > 0:
+        return payment_click['points'][0]['label']
+
+    return no_update
+
+@app.callback(
+    [Output('date-range', 'start_date'),
+     Output('date-range', 'end_date'),
+     Output('pickup-borough-dropdown', 'value'),
+     Output('dropoff-borough-dropdown', 'value'),
+     Output('payment-dropdown', 'value', allow_duplicate=True),
+     Output('passenger-range', 'value')],
+    Input('reset-filters-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def reset_filters(n_clicks):
+    return (
+        min_date,
+        max_date,
+        'All',
+        'All',
+        'All',
+        [0, max_passengers]
+    )
 
 # ------------------------------
 # 5. Run the app
