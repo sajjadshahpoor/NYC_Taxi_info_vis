@@ -28,6 +28,7 @@ zones_gdf = zones_gdf.to_crs("EPSG:4326")
 # Convert datetime columns
 trips_df['tpep_pickup_datetime'] = pd.to_datetime(trips_df['tpep_pickup_datetime'])
 trips_df['pickup_date'] = trips_df['tpep_pickup_datetime'].dt.date
+trips_df['pickup_month'] = trips_df['tpep_pickup_datetime'].dt.month
 
 # Get min and max dates for the date picker
 min_date = trips_df['tpep_pickup_datetime'].min().date()
@@ -187,6 +188,7 @@ app.layout = html.Div(
                 dcc.Graph(id='hourly-heatmap', config={'displayModeBar': False}, style={'height': '230px'}),
                 dcc.Graph(id='passenger-count', config={'displayModeBar': False}, style={'height': '230px'}),
                 dcc.Graph(id='payment-donut', config={'displayModeBar': False}, style={'height': '230px'}),
+                dcc.Graph(id='seasonal-heatmap', config={'displayModeBar': False}, style={'height': '230px'}),
             ]
         ),
     ]
@@ -206,7 +208,8 @@ app.layout = html.Div(
      Output('tip-distance', 'figure'),
      Output('hourly-heatmap', 'figure'),
      Output('passenger-count', 'figure'),
-     Output('payment-donut', 'figure')],
+     Output('payment-donut', 'figure'),
+     Output('seasonal-heatmap', 'figure'),],
     [Input('date-range', 'start_date'),
      Input('date-range', 'end_date'),
      Input('pickup-borough-dropdown', 'value'),
@@ -335,6 +338,24 @@ def update_dashboard(start_date, end_date, selected_pickup_borough, selected_dro
         fig_heatmap.update_layout(height=230, margin=dict(l=30, r=20, t=40, b=30))
     else:
         fig_heatmap = empty_figure("No data")
+
+    # Heatmap (flipped: day on X, month on Y)
+    if len(filtered) > 0:
+        daily_counts = filtered.groupby(['pickup_date', 'pickup_month', 'pickup_dayofweek']).size().reset_index(name='trips')
+        heatmap2_data = daily_counts.groupby(['pickup_month', 'pickup_dayofweek'])['trips'].mean().reset_index()
+        heatmap2_pivot = heatmap2_data.pivot(index='pickup_month', columns='pickup_dayofweek', values='trips')
+        fig_heatmap2 = px.imshow(heatmap2_pivot,
+                                labels=dict(x="Day of Week", y="Month of Year", color="Trips"),
+                                title="Trip Volume Heatmap (Day vs. Month)",
+                                color_continuous_scale='Plasma',
+                                aspect='auto')
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        day_labels = ['Mon', 'Tue', 'Wed','Thu', 'Fri', 'Sat', 'Sun']
+        fig_heatmap2.update_yaxes(tickvals=list(range(1,13)), ticktext=month_labels)
+        fig_heatmap2.update_xaxes(tickvals=list(range(7)), ticktext=day_labels)
+        fig_heatmap2.update_layout(height=230, margin=dict(l=30, r=20, t=40, b=30))
+    else:
+        fig_heatmap2 = empty_figure("No data")
     
     # Passenger count
     passenger_counts = filtered['passenger_count'].value_counts().reset_index()
@@ -354,7 +375,7 @@ def update_dashboard(start_date, end_date, selected_pickup_borough, selected_dro
     
     return (total_card, fare_card, dist_card, tip_card,
             map_html, fig_time, fig_fare_dist, fig_tip_dist,
-            fig_heatmap, fig_passenger, fig_payment)
+            fig_heatmap, fig_passenger, fig_payment, fig_heatmap2)
 
 
 @app.callback(
