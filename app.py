@@ -1,6 +1,5 @@
 import pandas as pd
 import geopandas as gpd
-import folium
 import json
 import plotly.express as px
 import plotly.graph_objects as go
@@ -107,14 +106,11 @@ def get_filtered_trips(
     return filtered
 
 # ------------------------------
-# 1. Load and prepare data
+# Load and prepare data
 # ------------------------------
 print("Loading data...")
 trips_df = pd.read_parquet('data/trips_sample.parquet')
 zones_gdf = gpd.read_file('data/taxi_zones.geojson')
-
-# Ensure zones have correct CRS
-zones_gdf = zones_gdf.to_crs("EPSG:4326")
 
 # Convert datetime columns
 trips_df['tpep_pickup_datetime'] = pd.to_datetime(trips_df['tpep_pickup_datetime'])
@@ -137,25 +133,8 @@ max_date = trips_df['tpep_pickup_datetime'].max().date()
 # Get max passengers
 max_passengers = int(trips_df['passenger_count'].max())
 
-# Create a borough mapping for zones (based on zone name)
-borough_keywords = {
-    'Manhattan': ['Manhattan', 'Midtown', 'Downtown', 'Upper', 'Lower', 'Chelsea', 'Soho', 'Tribeca', 'Gramercy', 'East Village', 'West Village', 'Harlem', 'Washington Heights', 'Inwood'],
-    'Brooklyn': ['Brooklyn', 'Williamsburg', 'Bushwick', 'Bedford-Stuyvesant', 'Crown Heights', 'Flatbush', 'Bay Ridge', 'Coney Island'],
-    'Queens': ['Queens', 'Astoria', 'Long Island City', 'Flushing', 'Jamaica', 'Howard Beach'],
-    'Bronx': ['Bronx', 'Riverdale', 'Fordham', 'Pelham Bay'],
-    'Staten Island': ['Staten Island']
-}
-def map_zone_to_borough(zone_name):
-    for borough, keywords in borough_keywords.items():
-        if any(keyword in zone_name for keyword in keywords):
-            return borough
-    return 'Other'
-zones_gdf['borough'] = zones_gdf['zone'].apply(map_zone_to_borough)
-
 # Create a mapping from LocationID to borough for filtering
 zone_to_borough = dict(zip(zones_gdf['LocationID'], zones_gdf['borough']))
-
-# Add borough columns to trips
 trips_df['PULocationBorough'] = trips_df['PULocationID'].map(zone_to_borough).fillna('Other')
 trips_df['DOLocationBorough'] = trips_df['DOLocationID'].map(zone_to_borough).fillna('Other')
 
@@ -165,33 +144,25 @@ trips_df['payment_type_name'] = trips_df['payment_type'].map(payment_map).fillna
 
 # Calculate duration
 trips_df['tpep_dropoff_datetime'] = pd.to_datetime(trips_df['tpep_dropoff_datetime'])
-
 trips_df['trip_duration_min'] = (
     trips_df['tpep_dropoff_datetime'] - trips_df['tpep_pickup_datetime']
 ).dt.total_seconds() / 60
-
 trips_df = trips_df[
     (trips_df['trip_duration_min'] > 0)
 ]
 
 # ------------------------------
-# 2. Initialize Dash app
+# Initialize Dash app
 # ------------------------------
 app = Dash(__name__)
 server = app.server
 
 # ------------------------------
-# 3. App layout
+# App layout
 # ------------------------------
 label_style = {
     'color': 'white',
-    'display': 'block',
-    'marginBottom': '6px'
-}
-
-dropdown_style = {
-    'width': '100%',
-    'fontSize': '12px'
+    'display': 'block'
 }
 
 kpi_card_style = {
@@ -216,12 +187,6 @@ inactive_nav_style = {
     **nav_button_style,
     'backgroundColor': '#ecf0f1',
     'color': '#555'
-}
-
-heatmap_style = {
-    'background': 'white',
-    'padding': '6px',
-    'boxShadow': '0 2px 6px rgba(0,0,0,0.08)'
 }
 
 main_content_style = {
@@ -262,8 +227,7 @@ filter_bar =html.Div([
                 options=[{'label': 'All Pick-up Boroughs', 'value': 'All'}] + 
                         [{'label': b, 'value': b} for b in zones_gdf['borough'].unique() if b != 'Other'],
                 value='All',
-                clearable=False,
-                style=dropdown_style
+                clearable=False
             ),
         ], style={'marginBottom': '18px'}),
 
@@ -274,8 +238,7 @@ filter_bar =html.Div([
                 options=[{'label': 'All Drop-off Boroughs', 'value': 'All'}] + 
                         [{'label': b, 'value': b} for b in zones_gdf['borough'].unique() if b != 'Other'],
                 value='All',
-                clearable=False,
-                style=dropdown_style
+                clearable=False
             ),
         ], style={'marginBottom': '18px'}),
 
@@ -286,8 +249,7 @@ filter_bar =html.Div([
                 options=[{'label': 'All Payment Methods', 'value': 'All'}] +
                         [{'label': p, 'value': p} for p in sorted(trips_df['payment_type_name'].unique())],
                 value='All',
-                clearable=False,
-                style=dropdown_style
+                clearable=False
             ),
         ], style={'marginBottom': '18px'}),
 
@@ -309,21 +271,57 @@ filter_bar =html.Div([
         ], style={'marginBottom': '18px'}),
 
         html.Button(
-            "↺ Reset",
+            "↺ Reset filters",
             id='reset-filters-btn',
             n_clicks=0,
             style={
                 'width': '100%',
-                'height': '38px',
-                'backgroundColor': '#95a5a6',
+                'height': '40px',
+                'backgroundColor': 'grey',
                 'color': 'white',
-                'border': 'none',
+                'cursor': 'pointer'
+            }
+        ),
+
+        html.Button(
+            "↺ Clear selections",
+            id='clear-selections-btn',
+            n_clicks=0,
+            style={
+                'width': '100%',
+                'height': '40px',
+                'backgroundColor': 'grey',
+                'color': 'white',
+                'cursor': 'pointer'
+            }
+        ),
+
+        html.Button(
+            "↺ Reset all",
+            id='reset-all-btn',
+            n_clicks=0,
+            style={
+                'width': '100%',
+                'height': '40px',
+                'backgroundColor': 'grey',
+                'color': 'white',
                 'cursor': 'pointer'
             }
         )
-    ], style={'padding': '5px', 'borderBottom': '1px solid #ddd', 'marginBottom': '5px', 'flexShrink': '0'})
+    ], style={'padding': '5px', 'borderBottom': '1px solid #ddd', 'marginBottom': '5px'})
 
 overview_layout = html.Div([
+    html.Div([
+        html.Strong("How to use this view: "),
+        html.Span(
+            "Use the filters on the left to choose what you want to analyse. "
+            "Click on time slots in the heatmaps and on taxi zones on the map to select a smaller group within those filtered rides. "
+            "The KPI cards compare the selected rides with all currently filtered rides."
+        )
+    ], style={
+            'backgroundColor': '#fff7d6'
+        }),
+
     # KPI row
     html.Div([
         html.Div(id='total-trips', style=kpi_card_style),
@@ -346,7 +344,7 @@ overview_layout = html.Div([
         html.Div([
             html.H4("WHEN IS DEMAND HIGH?", style={'margin': '2px 0'}),
             html.H5(
-                "Click on a time slot to filter all visuals",
+                "Click on a time slots to select them",
                 style={'marginBottom': '6px'}
             ),
             html.Div([
@@ -355,7 +353,7 @@ overview_layout = html.Div([
                     config={'displayModeBar': False},
                     style={'height': '220px'}
                 )
-            ], style=heatmap_style),
+            ]),
 
             html.Div([
                 dcc.Graph(
@@ -363,31 +361,28 @@ overview_layout = html.Div([
                     config={'displayModeBar': False},
                     style={'height': '220px'}
                 )
-            ], style=heatmap_style)
+            ])
 
         ], style={
-            'flex': '3',
-            'display': 'flex',
-            'flexDirection': 'column',
-            'gap': '8px'
+            'flex': '2',
+            'borderRadius': '10px',
+            'padding': '10px',
+            'boxShadow': '0 2px 6px lightgrey'
         }),
 
         # Map
         html.Div([
             html.H4("WHERE IS DEMAND HIGHEST?", style={'margin': '2px 0'}),
-            html.H5("Pickup Density (based on selection)", style={'marginBottom': '6px'}),
-            html.Iframe(
+            html.H5("Click on taxi zones to select them", style={'marginBottom': '6px'}),
+            dcc.Graph(
                 id='map',
-                srcDoc='',
-                width='100%',
-                height='250'
+                config={'displayModeBar': False}
             )
         ], style={
             'flex': '2',
-            'background': 'white',
             'borderRadius': '10px',
             'padding': '10px',
-            'boxShadow': '0 2px 6px rgba(0,0,0,0.08)'
+            'boxShadow': '0 2px 6px lightgrey'
         }),
 
     ], style={
@@ -441,6 +436,7 @@ characteristics_layout = html.Div([
 app.layout = html.Div([
     dcc.Store(id='selected-hour-weekdays', data=[]),
     dcc.Store(id='selected-month-weekdays', data=[]),
+    dcc.Store(id='selected-map-zones', data=[]),
 
     # LEFT SIDEBAR
     html.Div([
@@ -451,7 +447,7 @@ app.layout = html.Div([
         }),
 
         html.H4("Filters", style={
-            'color': '#f1c40f',
+            'color': 'yellow',
             'marginBottom': '10px'
         }),
 
@@ -483,18 +479,44 @@ app.layout = html.Div([
 })
 
 # ------------------------------
-# 4. Callbacks
+# Callbacks
 # ------------------------------
+@app.callback(
+    [
+        Output('date-range', 'start_date', allow_duplicate=True),
+        Output('date-range', 'end_date', allow_duplicate=True),
+        Output('pickup-borough-dropdown', 'value', allow_duplicate=True),
+        Output('dropoff-borough-dropdown', 'value', allow_duplicate=True),
+        Output('payment-dropdown', 'value', allow_duplicate=True),
+        Output('passenger-range', 'value', allow_duplicate=True),
+        Output('selected-hour-weekdays', 'data', allow_duplicate=True),
+        Output('selected-month-weekdays', 'data', allow_duplicate=True),
+        Output('selected-map-zones', 'data', allow_duplicate=True)
+    ],
+    Input('reset-all-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def reset_all(n_clicks):
+    return (
+        min_date,
+        max_date,
+        'All',
+        'All',
+        'All',
+        [0, max_passengers],
+        [],
+        [],
+        []
+    )
+
 @app.callback(
     [
         Output('date-range', 'start_date'),
         Output('date-range', 'end_date'),
         Output('pickup-borough-dropdown', 'value'),
         Output('dropoff-borough-dropdown', 'value'),
-        Output('payment-dropdown', 'value', allow_duplicate=True),
-        Output('passenger-range', 'value'),
-        Output('selected-hour-weekdays', 'data'),
-        Output('selected-month-weekdays', 'data')
+        Output('payment-dropdown', 'value'),
+        Output('passenger-range', 'value')
     ],
     Input('reset-filters-btn', 'n_clicks'),
     prevent_initial_call=True
@@ -506,13 +528,27 @@ def reset_filters(n_clicks):
         'All',
         'All',
         'All',
-        [0, max_passengers],
+        [0, max_passengers]
+    )
+
+@app.callback(
+    [
+        Output('selected-hour-weekdays', 'data', allow_duplicate=True),
+        Output('selected-month-weekdays', 'data', allow_duplicate=True),
+        Output('selected-map-zones', 'data', allow_duplicate=True)
+    ],
+    Input('clear-selections-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_selection(n_clicks):
+    return (
+        [],
         [],
         []
     )
 
 @app.callback(
-    Output('selected-hour-weekdays', 'data', allow_duplicate=True),
+    Output('selected-hour-weekdays', 'data'),
     Input('hourly-heatmap', 'clickData'),
     State('selected-hour-weekdays', 'data'),
     prevent_initial_call=True
@@ -536,7 +572,7 @@ def toggle_hour_weekday(clickData, selected_cells):
     return selected_cells
 
 @app.callback(
-    Output('selected-month-weekdays', 'data', allow_duplicate=True),
+    Output('selected-month-weekdays', 'data'),
     Input('seasonal-heatmap', 'clickData'),
     State('selected-month-weekdays', 'data'),
     prevent_initial_call=True
@@ -559,6 +595,25 @@ def toggle_month_weekday(clickData, selected_cells):
 
     return selected_cells
 
+@app.callback(
+    Output('selected-map-zones', 'data'),
+    Input('map', 'clickData'),
+    State('selected-map-zones', 'data'),
+    prevent_initial_call=True
+)
+def toggle_map_zone(clickData, selected_zones):
+    if clickData is None:
+        return no_update
+
+    clicked_zone = int(clickData['points'][0]['customdata'][0])
+
+    if clicked_zone in selected_zones:
+        selected_zones.remove(clicked_zone)
+    else:
+        selected_zones.append(clicked_zone)
+
+    return selected_zones
+
 def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", decimals=1, comparison_type="average"):
     if comparison_type == "total":
         share_pct = (
@@ -566,9 +621,9 @@ def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", dec
             if baseline_value > 0 else 0
         )
 
-        comparison_text = f"{share_pct:.1f}% of filtered total"
+        comparison_text = f"{share_pct:.1f}% of filtered rides total"
         comparison_color = '#2980b9'
-        baseline_label = "Filtered total"
+        baseline_label = "Filtered rides total"
 
     else:
         diff_pct = (
@@ -577,9 +632,9 @@ def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", dec
         )
 
         diff_sign = '+' if diff_pct >= 0 else ''
-        comparison_text = f"{diff_sign}{diff_pct:.1f}% vs filtered avg"
+        comparison_text = f"{diff_sign}{diff_pct:.1f}% vs filtered rides avg"
         comparison_color = 'green' if diff_pct >= 0 else 'red'
-        baseline_label = "Filtered avg"
+        baseline_label = "Filtered rides avg"
 
     return html.Div([
         html.H4(title, style={'margin': '0', 'color': '#666'}),
@@ -593,7 +648,7 @@ def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", dec
         ]),
 
         html.Div([
-            html.Div("Selection", style={'fontSize': '11px', 'color': '#999'}),
+            html.Div("Selected rides", style={'fontSize': '11px', 'color': '#999'}),
             html.H3(
                 f"{prefix}{selected_value:,.{decimals}f}{suffix}",
                 style={'margin': '2px 0 0 0', 'color': 'black'}
@@ -619,7 +674,7 @@ def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", dec
         Output('avg-duration', 'children'),
         Output('hourly-heatmap', 'figure'),
         Output('seasonal-heatmap', 'figure'),
-        Output('map', 'srcDoc'),
+        Output('map', 'figure'),
         Output('top-pickup-zones', 'children'),
         Output('active-time-selection', 'children'),
         Output('active-time-selection', 'style'),
@@ -632,7 +687,8 @@ def compare_kpi(title, baseline_value, selected_value, suffix="", prefix="", dec
         Input('payment-dropdown', 'value'),
         Input('passenger-range', 'value'),
         Input('selected-hour-weekdays', 'data'),
-        Input('selected-month-weekdays', 'data')
+        Input('selected-month-weekdays', 'data'),
+        Input('selected-map-zones', 'data')
     ]
 )
 def update_kpis(
@@ -643,7 +699,8 @@ def update_kpis(
         selected_payment,
         selected_passenger_range,
         selected_hour_weekdays,
-        selected_month_weekdays
+        selected_month_weekdays,
+        selected_map_zones
     ):
     base_filtered = get_filtered_trips(
         start_date,
@@ -654,7 +711,7 @@ def update_kpis(
         selected_passenger_range
     )
 
-    selected_filtered = get_filtered_trips(
+    map_filtered = get_filtered_trips(
         start_date,
         end_date,
         selected_pickup_borough,
@@ -665,11 +722,24 @@ def update_kpis(
         selected_month_weekdays
     )
 
+    heatmap_filtered = base_filtered.copy()
+
+    if selected_map_zones:
+        heatmap_filtered = heatmap_filtered[
+            heatmap_filtered["PULocationID"].isin(selected_map_zones)
+        ]
+    
+    selected_filtered = map_filtered.copy()
+
+    if selected_map_zones:
+        selected_filtered = selected_filtered[
+            selected_filtered["PULocationID"].isin(selected_map_zones)
+        ]
+
     # Empty data handling
     if len(selected_filtered) == 0:
         empty_card = html.Div([html.H4("No data", style={'margin': '0'}), html.H3("0", style={'margin': '0'})])
-        empty_map = "<div style='text-align:center; padding:20px;'>No data</div>"
-        empty_top_zones = html.Div("No top zones", style={'fontSize': '12px', 'color': '#999'})
+        empty_top_zones = html.Div("No top zones")
         active_style = {'display': 'none'}
         return (
             empty_card,
@@ -680,7 +750,7 @@ def update_kpis(
             empty_card,
             empty_figure("No data"),
             empty_figure("No data"),
-            empty_map,
+            empty_figure("No data"),
             empty_top_zones,
             "",
             active_style
@@ -708,9 +778,9 @@ def update_kpis(
     dist_card = compare_kpi("Avg Distance", baseline_avg_distance, selected_avg_distance, suffix=" mi", decimals=1)
     duration_card = compare_kpi("Avg Duration", baseline_avg_duration, selected_avg_duration, suffix=" min", decimals=1)
 
-    if len(base_filtered) > 0:
+    if len(heatmap_filtered) > 0:
         heatmap_data = (
-            base_filtered
+            heatmap_filtered
             .groupby(['pickup_hour', 'pickup_dayofweek'])
             .size()
             .reset_index(name='count')
@@ -742,7 +812,7 @@ def update_kpis(
             heatmap_pivot,
             labels=dict(x="Hour of Day", y="Day of Week", color="Trips"),
             title="Trip Volume Heatmap (Hour vs. Day)",
-            color_continuous_scale='Plasma',
+            color_continuous_scale='Viridis',
             aspect='auto'
         )
 
@@ -768,9 +838,9 @@ def update_kpis(
     else:
         fig_heatmap = empty_figure("No data")
 
-    if len(base_filtered) > 0:
+    if len(heatmap_filtered) > 0:
         daily_counts = (
-            base_filtered
+            heatmap_filtered
             .groupby(['pickup_date', 'pickup_month', 'pickup_dayofweek'])
             .size()
             .reset_index(name='trips')
@@ -793,7 +863,7 @@ def update_kpis(
             heatmap2_pivot,
             labels=dict(x="Day of Week", y="Month of Year", color="Trips"),
             title="Trip Volume Heatmap (Day vs. Month)",
-            color_continuous_scale='Plasma',
+            color_continuous_scale='Viridis',
             aspect='auto'
         )
 
@@ -831,7 +901,7 @@ def update_kpis(
     else:
         fig_heatmap2 = empty_figure("No data")
 
-    pickup_counts = selected_filtered['PULocationID'].value_counts().reset_index()
+    pickup_counts = map_filtered['PULocationID'].value_counts().reset_index()
     pickup_counts.columns = ['LocationID', 'count']
 
     zones_with_counts = zones_gdf.merge(
@@ -840,25 +910,38 @@ def update_kpis(
         how='left'
     ).fillna(0)
 
-    m = folium.Map(
-        location=[40.7128, -74.0060],
-        zoom_start=11,
-        tiles='CartoDB positron'
+    zones_with_counts["selected"] = zones_with_counts["LocationID"].isin(selected_map_zones)
+
+    fig_map = px.choropleth_map(
+        zones_with_counts,
+        geojson=json.loads(zones_with_counts.to_json()),
+        locations="LocationID",
+        featureidkey="properties.LocationID",
+        color="count",
+        map_style="carto-positron",
+        center={"lat": 40.7128, "lon": -74.0060},
+        zoom=10,
+        opacity=0.7,
+        color_continuous_scale="Viridis",
+        custom_data=["LocationID", "zone", "borough", "count"],
+        hover_data={
+            "zone": True,
+            "count": True
+        }
     )
 
-    folium.Choropleth(
-        geo_data=json.loads(zones_with_counts.to_json()),
-        data=zones_with_counts,
-        columns=['LocationID', 'count'],
-        key_on='feature.properties.LocationID',
-        fill_color='YlOrRd',
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        legend_name='Pickups',
-        highlight=True
-    ).add_to(m)
+    fig_map.update_traces(
+        marker_line_width=[
+            3 if selected else 0.5
+            for selected in zones_with_counts["selected"]
+        ]
+    )
 
-    map_html = m.get_root().render()
+    fig_map.update_layout(
+        height=250,
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        uirevision="keep-map-position"
+    )
 
     top_zones = (
         selected_filtered
@@ -913,6 +996,21 @@ def update_kpis(
             f"{month_labels_full[int(cell['month'])]} "
             f"{day_labels_full[int(cell['weekday'])]}"
         )
+    
+    for zone_id in selected_map_zones:
+        zone_name = zones_gdf.loc[
+            zones_gdf['LocationID'] == zone_id,
+            'zone'
+        ].values[0]
+
+        borough_name = zones_gdf.loc[
+            zones_gdf['LocationID'] == zone_id,
+            'borough'
+        ].values[0]
+
+        selection_parts.append(
+            f"Taxi zone: {zone_name} ({borough_name})"
+        )
 
     if selection_parts:
         active_text = html.Div([
@@ -942,7 +1040,7 @@ def update_kpis(
         duration_card,
         fig_heatmap,
         fig_heatmap2,
-        map_html,
+        fig_map,
         top_zones_list,
         active_text,
         active_style
@@ -1154,7 +1252,7 @@ def switch_view(n_overview, n_temporal, n_spatial, n_characteristics):
     )
 
 # ------------------------------
-# 5. Run the app
+# Run the app
 # ------------------------------
 if __name__ == '__main__':
     app.run(debug=True)
