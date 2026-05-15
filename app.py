@@ -409,8 +409,13 @@ temporal_layout = html.Div([
 
 spatial_layout = html.Div([
     html.H2("Spatial Analysis"),
-    html.Div("yyy"),
-    html.Div("yyy")
+    html.Div([
+        html.Div([
+            dcc.Graph(id='origin-destination-matrix', config={'displayModeBar': False})]),
+        html.Div(
+            id='origin-destination-details'
+        )
+    ], style={'display': 'flex'})
 ])
 
 characteristics_layout = html.Div([
@@ -437,6 +442,7 @@ app.layout = html.Div([
     dcc.Store(id='selected-hour-weekdays', data=[]),
     dcc.Store(id='selected-month-weekdays', data=[]),
     dcc.Store(id='selected-map-zones', data=[]),
+    dcc.Store(id='selected-origin-destination', data=None),
 
     # LEFT SIDEBAR
     html.Div([
@@ -1250,6 +1256,159 @@ def switch_view(n_overview, n_temporal, n_spatial, n_characteristics):
         visible if current_view == 'spatial' else hidden,
         visible if current_view == 'characteristics' else hidden
     )
+
+@app.callback(
+    Output('selected-origin-destination', 'data'),
+    Input('origin-destination-matrix', 'clickData'),
+    State('selected-origin-destination', 'data'),
+    prevent_initial_call=True
+)
+def select_origin_destination(clickData, selected_combo):
+    if clickData is None:
+        return no_update
+
+    point = clickData['points'][0]
+
+    pickup_borough = point['y']
+    dropoff_borough = point['x']
+
+    clicked_combo = {
+        'pickup': pickup_borough,
+        'dropoff': dropoff_borough
+    }
+
+    if selected_combo == clicked_combo:
+        return None
+
+    return clicked_combo
+
+@app.callback(
+    [
+        Output('origin-destination-matrix', 'figure'),
+        Output('origin-destination-details','children')
+    ],
+    [
+        Input('date-range', 'start_date'),
+        Input('date-range', 'end_date'),
+        Input('pickup-borough-dropdown', 'value'),
+        Input('dropoff-borough-dropdown', 'value'),
+        Input('payment-dropdown', 'value'),
+        Input('passenger-range', 'value'),
+        Input('selected-origin-destination','data')
+    ]
+)
+def update_origin_destination_matrix(
+    start_date,
+    end_date,
+    selected_pickup_borough,
+    selected_dropoff_borough,
+    selected_payment,
+    selected_passenger_range,
+    selected_combo
+):
+    filtered = get_filtered_trips(
+        start_date,
+        end_date,
+        selected_pickup_borough,
+        selected_dropoff_borough,
+        selected_payment,
+        selected_passenger_range
+    )
+
+    all_boroughs = [
+        'Bronx',
+        'Brooklyn',
+        'Manhattan',
+        'Queens',
+        'Staten Island',
+        'EWR'
+    ]
+
+    origin_destination_data = (
+        filtered
+        .groupby(['PULocationBorough', 'DOLocationBorough'])
+        .size()
+        .reset_index(name='trips')
+    )
+    origin_destination_matrix = (
+        origin_destination_data
+        .pivot(
+            index='PULocationBorough',
+            columns='DOLocationBorough',
+            values='trips'
+        )
+        .reindex(
+            index=all_boroughs,
+            columns=all_boroughs
+        )
+        .fillna(0)
+    )
+
+    display_matrix = origin_destination_matrix.copy()
+
+    if selected_pickup_borough != 'All':
+        excluded_pickups = [
+            b for b in all_boroughs
+            if b != selected_pickup_borough
+        ]
+        display_matrix.loc[excluded_pickups, :] = np.nan
+
+    if selected_dropoff_borough != 'All':
+        excluded_dropoffs = [
+            b for b in all_boroughs
+            if b != selected_dropoff_borough
+        ]
+        display_matrix.loc[:, excluded_dropoffs] = np.nan
+
+    fig_origin_destination = px.imshow(
+        display_matrix,
+        labels=dict(
+            x="Dropoff borough",
+            y="Pickup borough",
+            color='Amount'
+        ),
+        color_continuous_scale="Viridis",
+        title="Origin-Destination Flow Matrix",
+        text_auto=True
+    )
+    fig_origin_destination.update_layout(
+        plot_bgcolor="white",
+    )
+
+    if selected_combo:
+        pickup = selected_combo['pickup']
+        dropoff = selected_combo['dropoff']
+
+        combo_filtered = filtered[
+            (filtered['PULocationBorough'] == pickup) &
+            (filtered['DOLocationBorough'] == dropoff)
+        ]
+    else:
+        combo_filtered = filtered
+
+    details = html.Div([
+            html.H4(
+                "Selected combination" if selected_combo else "All combinations",
+                style={'marginTop': '0'}
+            ),
+
+            html.Div(
+                f"{selected_combo['pickup']} → {selected_combo['dropoff']}"
+                if selected_combo else
+                "No specific combination selected"
+            ),
+
+            html.Hr(),
+
+            html.Div(f"Trips: {len(combo_filtered):,}"),
+            html.Div(f"Total revenue: ${combo_filtered['total_amount'].sum():,.0f}"),
+            html.Div(f"Avg fare: ${combo_filtered['fare_amount'].mean():.2f}"),
+            html.Div(f"Avg tip: {combo_filtered['tip_percentage'].mean():.1f}%"),
+            html.Div(f"Avg distance: {combo_filtered['trip_distance'].mean():.1f} mi"),
+            html.Div(f"Avg duration: {combo_filtered['trip_duration_min'].mean():.1f} min")
+        ])
+
+    return fig_origin_destination, details
 
 # ------------------------------
 # Run the app
