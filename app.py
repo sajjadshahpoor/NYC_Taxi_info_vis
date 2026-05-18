@@ -1249,6 +1249,11 @@ def update_kpis(
         Input('selected-month-weekdays', 'data')
     ]
 )
+
+
+
+
+
 def update_characteristics_charts(
     start_date,
     end_date,
@@ -1380,6 +1385,26 @@ def update_characteristics_charts(
         fig_passenger,
         fig_payment
     )
+
+@app.callback(
+    Output('payment-dropdown', 'value', allow_duplicate=True),
+    Input('char-payment-donut', 'clickData'),
+    State('payment-dropdown', 'value'),
+    prevent_initial_call=True
+)
+def filter_by_clicked_payment_method(clickData, current_payment):
+    if clickData is None:
+        return no_update
+
+    clicked_payment = clickData['points'][0]['label']
+
+    # If user clicks the same payment method again, reset to All
+    if clicked_payment == current_payment:
+        return 'All'
+
+    return clicked_payment
+
+
 
 def simple_kpi(title, value, suffix="", prefix="", decimals=1, note=""):
     if pd.isna(value):
