@@ -616,7 +616,41 @@ characteristics_layout = html.Div([
             dcc.Graph(id='char-tip-distance', config={'displayModeBar': False}),
             dcc.Graph(id='char-revenue-over-time', config={'displayModeBar': False}),
             dcc.Graph(id='char-passenger-count', config={'displayModeBar': False}),
-            dcc.Graph(id='char-payment-donut', config={'displayModeBar': False}),
+            html.Div([
+                html.Div([
+                    html.Span(
+                        "💳 Click a payment method to filter the dashboard",
+                        id='payment-filter-message',
+                        style={
+                            'fontSize': '12px',
+                            'color': '#555'
+                        }
+                    ),
+                    html.Button(
+                        "Reset payment",
+                        id='reset-payment-btn',
+                        n_clicks=0,
+                        style={
+                            'fontSize': '11px',
+                            'padding': '4px 8px',
+                            'borderRadius': '6px',
+                            'border': '1px solid #ccc',
+                            'backgroundColor': '#f7f7f7',
+                            'cursor': 'pointer'
+                        }
+                    )
+                ], style={
+                    'display': 'flex',
+                    'justifyContent': 'space-between',
+                    'alignItems': 'center',
+                    'marginBottom': '4px'
+                }),
+
+                dcc.Graph(
+                    id='char-payment-donut',
+                    config={'displayModeBar': False}
+                )
+            ]),
         ]
     )
 ])
@@ -1416,7 +1450,24 @@ def filter_by_clicked_payment_method(clickData, current_payment):
 
     return clicked_payment
 
+@app.callback(
+    Output('payment-dropdown', 'value', allow_duplicate=True),
+    Input('reset-payment-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def reset_payment_from_button(n_clicks):
+    return 'All'
 
+
+@app.callback(
+    Output('payment-filter-message', 'children'),
+    Input('payment-dropdown', 'value')
+)
+def update_payment_filter_message(selected_payment):
+    if selected_payment == 'All':
+        return "💳 Click a payment method to filter the dashboard"
+
+    return f"💳 Active payment filter: {selected_payment}"
 
 def simple_kpi(title, value, suffix="", prefix="", decimals=1, note=""):
     if pd.isna(value):
