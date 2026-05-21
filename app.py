@@ -663,7 +663,7 @@ app.layout = html.Div([
 
     # LEFT SIDEBAR
     html.Div([
-        html.H2("🚕 NYC Taxi Dashboard", style={
+        html.H2("NYC Taxi Visual Analytics System", style={
             'color': 'white',
             'fontSize': '18px',
             'marginBottom': '25px'
