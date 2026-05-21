@@ -146,6 +146,16 @@ trips_df['DOLocationBorough'] = trips_df['DOLocationID'].map(zone_to_borough).fi
 payment_map = {1: 'Credit', 2: 'Cash', 3: 'No Charge', 4: 'Dispute', 5: 'Unknown', 6: 'Voided'}
 trips_df['payment_type_name'] = trips_df['payment_type'].map(payment_map).fillna('Other')
 
+payment_color_map = {
+    'Credit': '#636EFA',
+    'Cash': '#EF553B',
+    'No Charge': '#00CC96',
+    'Dispute': '#AB63FA',
+    'Unknown': '#FFA15A',
+    'Voided': '#19D3F3',
+    'Other': '#B6B6B6'
+}
+
 # Calculate duration
 trips_df['tpep_dropoff_datetime'] = pd.to_datetime(trips_df['tpep_dropoff_datetime'])
 trips_df['trip_duration_min'] = (
@@ -1368,11 +1378,13 @@ def update_characteristics_charts(
     payment_counts.columns = ['method', 'count']
 
     fig_payment = px.pie(
-        payment_counts,
-        names='method',
-        values='count',
-        title='Payment Methods',
-        hole=0.4
+    payment_counts,
+    names='method',
+    values='count',
+    title='Payment Methods',
+    hole=0.4,
+    color='method',
+    color_discrete_map=payment_color_map
     )
     fig_payment.update_layout(height=230)
     fig_payment = apply_style_to_figure(fig_payment)
